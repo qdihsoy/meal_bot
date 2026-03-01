@@ -14,6 +14,8 @@ load_dotenv()
 client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
 notion = NotionClient(auth=os.getenv('NOTION_API_KEY'))
 DATABASE_ID = os.getenv('NOTION_DATABASE_ID')
+print(f"DEBUG: Key starts with {os.getenv('NOTION_API_KEY')[:5]}...")
+print(f"DEBUG: DB ID is {os.getenv('NOTION_DATABASE_ID')}")
 
 app = Flask(__name__)
 configuration = Configuration(access_token=os.getenv('LINE_CHANNEL_ACCESS_TOKEN'))
