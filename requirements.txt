@@ -3,3 +3,4 @@ python-dotenv
 line-bot-sdk
 google-genai
 notion-client
+cloudinary
