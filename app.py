@@ -67,38 +67,43 @@ def callback():
 def handle_text_message(event):
     user_id = event.source.user_id
     user_text = event.message.text
+    now = datetime.now().strftime('%Y-%m-%d')
 
-    if user_id in user_sessions:
-        try:
+    try:
+        if user_id in user_sessions:
             pending_data = user_sessions[user_id]
-            now = datetime.now().strftime('%Y-%m-%d')
-            
             prompt = (
-                f"今日は {now} です。ユーザーの入力「{user_text}」から、"
-                "日付(YYYY-MM-DD形式)と時間帯(朝食, 昼食, 夕食, 間食のいずれか)を抜き出して、"
-                "必ず以下のJSON形式だけで答えてください。\n"
+                f"今日は {now} です。入力「{user_text}」から、"
+                "日付(YYYY-MM-DD)と時間帯(朝食, 昼食, 夕食, 間食)を抽出しJSONで返して。\n"
                 '{"date": "YYYY-MM-DD", "period": "時間帯"}'
             )
-            
             response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-            print(f"Gemini Time Response: {response.text}")
-            
             json_str = response.text.replace('```json', '').replace('```', '').strip()
             time_data = json.loads(json_str)
             
             pending_data.update(time_data)
-            
             save_to_notion(pending_data)
-            
-            reply_text = f"✅ {time_data['date']}の{time_data['period']}として保存しました！"
+            reply_text = f"✅ {time_data['date']}の{time_data['period']}として、画像付きで保存しました！"
             del user_sessions[user_id]
+
+        else:
+            prompt = (
+                f"今日は {now} です。入力された食事内容「{user_text}」を解析して、"
+                "料理名、栄養素、日付(YYYY-MM-DD)、時間帯(朝食, 昼食, 夕食, 間食)を推定し、"
+                "以下のJSON形式だけで答えてください。\n"
+                '{"name": "料理名", "calories": 数値, "protein": 数値, "fat": 数値, "carbs": 数値, "memo": "アドバイス", "date": "YYYY-MM-DD", "period": "時間帯"}'
+            )
+            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+            json_str = response.text.replace('```json', '').replace('```', '').strip()
+            data = json.loads(json_str)
             
-        except Exception as e:
-            error_msg = str(e)
-            print(f"Error in text handler: {error_msg}")
-            reply_text = f"保存中にエラーが発生しました。\n内容: {error_msg}"
-    else:
-        reply_text = "まず食事の写真を送ってください！"
+            data["image_url"] = None
+            save_to_notion(data)
+            reply_text = f"📝 テキストから解析して保存しました！\n\n🍴{data['name']}\n📅{data['date']} ({data['period']})"
+
+    except Exception as e:
+        print(f"Error: {e}")
+        reply_text = f"エラーが発生しました: {str(e)}"
 
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
