@@ -15,12 +15,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 各種クライアント初期化
 client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
 notion = NotionClient(auth=os.getenv('NOTION_API_KEY'))
 DATABASE_ID = os.getenv('NOTION_DATABASE_ID')
 
-# Cloudinary設定
 cloudinary.config(
     cloud_name = os.getenv('CLOUDINARY_CLOUD_NAME'),
     api_key = os.getenv('CLOUDINARY_API_KEY'),
@@ -38,7 +36,7 @@ def save_to_notion(data):
     properties = {
         "名前": {"title": [{"text": {"content": data.get("name", "不明")}}]},
         "日付": {"date": {"start": data.get("date", datetime.now().strftime('%Y-%m-%d'))}},
-        "時間帯": {"select": {"name": data.get("period", "間食")}},
+        "時間帯": {"rich_text": [{"text": {"content": data.get("period", "間食")}}]},
         "カロリー": {"number": data.get("calories", 0)},
         "タンパク質": {"number": data.get("protein", 0)},
         "脂質": {"number": data.get("fat", 0)},
@@ -46,12 +44,13 @@ def save_to_notion(data):
         "メモ": {"rich_text": [{"text": {"content": data.get("memo", "")}}]}
     }
     
-    # 画像URLがあれば追加
     if data.get("image_url"):
         properties["画像"] = {
             "files": [{"type": "external", "name": "Meal Photo", "external": {"url": data["image_url"]}}]
         }
 
+    print(f"Notion properties: {json.dumps(properties, ensure_ascii=False)}")
+    
     notion.pages.create(parent={"database_id": DATABASE_ID}, properties=properties)
 
 @app.route("/callback", methods=['POST'])
@@ -70,26 +69,43 @@ def handle_text_message(event):
     user_text = event.message.text
 
     if user_id in user_sessions:
-        pending_data = user_sessions[user_id]
-        
-        # Geminiに日付と時間を解釈させる
-        now = datetime.now().strftime('%Y-%m-%d')
-        prompt = f"今日は {now} です。入力「{user_text}」から、日付(YYYY-MM-DD)と時間帯(朝食, 昼食, 夕食, 間食)を抽出しJSONで返して。{'{"date": "...", "period": "..."}'}"
-        
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-        time_data = json.loads(response.text.replace('```json', '').replace('```', '').strip())
-        
-        pending_data.update(time_data)
-        save_to_notion(pending_data)
-        
-        reply_text = f"✅ {time_data['date']}の{time_data['period']}として保存しました！"
-        del user_sessions[user_id]
+        try:
+            pending_data = user_sessions[user_id]
+            now = datetime.now().strftime('%Y-%m-%d')
+            
+            prompt = (
+                f"今日は {now} です。ユーザーの入力「{user_text}」から、"
+                "日付(YYYY-MM-DD形式)と時間帯(朝食, 昼食, 夕食, 間食のいずれか)を抜き出して、"
+                "必ず以下のJSON形式だけで答えてください。\n"
+                '{"date": "YYYY-MM-DD", "period": "時間帯"}'
+            )
+            
+            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+            print(f"Gemini Time Response: {response.text}")
+            
+            json_str = response.text.replace('```json', '').replace('```', '').strip()
+            time_data = json.loads(json_str)
+            
+            pending_data.update(time_data)
+            
+            save_to_notion(pending_data)
+            
+            reply_text = f"✅ {time_data['date']}の{time_data['period']}として保存しました！"
+            del user_sessions[user_id]
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"Error in text handler: {error_msg}")
+            reply_text = f"保存中にエラーが発生しました。\n内容: {error_msg}"
     else:
-        reply_text = "まず写真を送ってください。その後に「今日の昼ごはん」などと教えてね！"
+        reply_text = "まず食事の写真を送ってください！"
 
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
-        line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
+        line_bot_api.reply_message(ReplyMessageRequest(
+            reply_token=event.reply_token,
+            messages=[TextMessage(text=reply_text)]
+        ))
 
 @handler.add(MessageEvent, message=ImageMessageContent)
 def handle_image_message(event):
@@ -99,18 +115,15 @@ def handle_image_message(event):
         line_bot_blob_api = MessagingApiBlob(api_client)
         message_content = line_bot_blob_api.get_message_content(message_id=event.message.id)
         
-        # 1. Cloudinaryにアップロード
         upload_result = cloudinary.uploader.upload(message_content)
         image_url = upload_result['secure_url']
         
-        # 2. Geminiで栄養解析
         image_part = types.Part.from_bytes(data=message_content, mime_type='image/jpeg')
         prompt = """解析してJSONで答えて。{"name": "料理名", "calories": 数値, "protein": 数値, "fat": 数値, "carbs": 数値, "memo": "アドバイス"}"""
         
         response = client.models.generate_content(model='gemini-2.5-flash', contents=[prompt, image_part])
         data = json.loads(response.text.replace('```json', '').replace('```', '').strip())
         
-        # 画像URLもセッションに保存
         data["image_url"] = image_url
         user_sessions[user_id] = data
         
