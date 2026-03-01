@@ -19,62 +19,59 @@ app = Flask(__name__)
 configuration = Configuration(access_token=os.getenv('LINE_CHANNEL_ACCESS_TOKEN'))
 handler = WebhookHandler(os.getenv('LINE_CHANNEL_SECRET'))
 
-# Notionにデータを保存する関数
 def save_to_notion(data):
-    notion.pages.create(
-        parent={"database_id": DATABASE_ID},
-        properties={
-            "名前": {"title": [{"text": {"content": data.get("name", "不明")}}]},
-            "カロリー": {"number": data.get("calories", 0)},
-            "タンパク質": {"number": data.get("protein", 0)},
-            "脂質": {"number": data.get("fat", 0)},
-            "炭水化物": {"number": data.get("carbs", 0)},
-            "メモ": {"rich_text": [{"text": {"content": data.get("memo", "")}}]}
-        }
-    )
+    print(f"--- 4. Notionに書き込み開始: {data['name']} ---")
+    try:
+        notion.pages.create(
+            parent={"database_id": DATABASE_ID},
+            properties={
+                "名前": {"title": [{"text": {"content": data.get("name", "不明")}}]},
+                "カロリー": {"number": data.get("calories", 0)},
+                "タンパク質": {"number": data.get("protein", 0)},
+                "脂質": {"number": data.get("fat", 0)},
+                "炭水化物": {"number": data.get("carbs", 0)},
+                "メモ": {"rich_text": [{"text": {"content": data.get("memo", "")}}]}
+            }
+        )
+        print("--- 5. Notion書き込み成功！ ---")
+    except Exception as e:
+        print(f"--- Notionエラー発生: {e} ---")
+        raise e
 
 @app.route("/callback", methods=['POST'])
 def callback():
+    print("--- 1. LINEからWebhookを受信しました ---")
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
+        print("署名エラーです")
         abort(400)
     return 'OK'
 
-# AIに解析させて保存する共通処理
 def analyze_and_save(contents, event):
-    # AIにJSON形式で答えるよう指示
-    prompt = """
-    食事を解析して以下のJSON形式で答えてください。
-    {
-        "name": "料理名",
-        "calories": 数値,
-        "protein": 数値,
-        "fat": 数値,
-        "carbs": 数値,
-        "memo": "栄養士としてのアドバイス(100文字以内)"
-    }
-    """
-    
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=[prompt] + contents
-    )
+    print("--- 2. Geminiで解析中... ---")
+    prompt = """食事を解析して以下のJSON形式で答えて。
+    {"name": "料理名", "calories": 数値, "protein": 数値, "fat": 数値, "carbs": 数値, "memo": "アドバイス"}"""
     
     try:
-        # 返ってきたテキストからJSON部分だけを取り出す
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[prompt] + contents
+        )
+        print(f"--- 3. Geminiの回答を受信: {response.text[:50]}... ---")
+        
         json_str = response.text.replace('```json', '').replace('```', '').strip()
         data = json.loads(json_str)
         
-        # Notionに保存
+        # Notion保存実行
         save_to_notion(data)
-        
-        reply_text = f"✅ 保存しました！\n\n🍴{data['name']}\n🔥{data['calories']}kcal\n📝{data['memo']}"
+        reply_text = f"✅ Notionに保存しました！\n\n🍴{data['name']}\n🔥{data['calories']}kcal"
+
     except Exception as e:
-        print(f"Error: {e}")
-        reply_text = response.text # パース失敗時はそのまま返す
+        print(f"--- 解析・保存中にエラー: {e} ---")
+        reply_text = f"エラーが発生しました: {str(e)}"
 
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
@@ -85,12 +82,10 @@ def analyze_and_save(contents, event):
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_text_message(event):
-    # テキストが届いた場合
     analyze_and_save([event.message.text], event)
 
 @handler.add(MessageEvent, message=ImageMessageContent)
 def handle_image_message(event):
-    # 画像が届いた場合
     with ApiClient(configuration) as api_client:
         line_bot_blob_api = MessagingApiBlob(api_client)
         message_content = line_bot_blob_api.get_message_content(message_id=event.message.id)
