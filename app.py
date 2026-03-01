@@ -7,12 +7,12 @@ from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage, MessagingApiBlob
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, ImageMessageContent
-# from notion_client import Client
+from notion_client import Client as NotionClient
 from dotenv import load_dotenv
 
 load_dotenv()
 client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
-notion = Client(auth=os.getenv('NOTION_API_KEY'))
+notion = NotionClient(auth=os.getenv('NOTION_API_KEY'))
 DATABASE_ID = os.getenv('NOTION_DATABASE_ID')
 
 app = Flask(__name__)
