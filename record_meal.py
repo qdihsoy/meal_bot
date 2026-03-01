@@ -53,6 +53,10 @@ def save_to_notion(data):
     
     notion.pages.create(parent={"database_id": DATABASE_ID}, properties=properties)
 
+@app.route('/')
+def index():
+    return "Bot is running!", 200
+
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
