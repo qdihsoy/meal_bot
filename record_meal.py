@@ -93,17 +93,29 @@ def handle_text_message(event):
         else:
             prompt = (
                 f"今日は {now} です。入力された食事内容「{user_text}」を解析して、"
-                "料理名、栄養素、日付(YYYY-MM-DD)、時間帯(朝食, 昼食, 夕食, 間食)を推定し、"
+                "料理名、栄養素、日付(YYYY-MM-DD)、時間帯(朝食, 昼食, 夕食, 間食)を推定してください。\n"
+                "また、Google検索を使用して、この料理に最も適した「いらすとや(irasutoya.com)」の画像URLを探してください。"
+                "画像URLは、可能な限り直接の画像ファイル（.png や .jpg で終わるもの）を優先してください。\n\n"
                 "以下のJSON形式だけで答えてください。\n"
-                '{"name": "料理名", "calories": 数値, "protein": 数値, "fat": 数値, "carbs": 数値, "memo": "アドバイス", "date": "YYYY-MM-DD", "period": "時間帯"}'
+                '{"name": "料理名", "calories": 数値, "protein": 数値, "fat": 数値, "carbs": 数値, "memo": "アドバイス", "date": "YYYY-MM-DD", "period": "時間帯", "image_url": "いらすとやの画像URL"}'
             )
-            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+            
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    tools=[types.Tool(google_search=types.GoogleSearch())]
+                )
+            )
+            
             json_str = response.text.replace('```json', '').replace('```', '').strip()
             data = json.loads(json_str)
             
-            data["image_url"] = None
+            if not data.get("image_url"):
+                 data["image_url"] = "https://www.irasutoya.com/favicon.ico"
+
             save_to_notion(data)
-            reply_text = f"📝 テキストから解析して保存しました！\n\n🍴{data['name']}\n📅{data['date']} ({data['period']})"
+            reply_text = f"📝 テキストから解析して保存しました！（画像もセットしました）\n\n🍴{data['name']}\n📅{data['date']} ({data['period']})"
 
     except Exception as e:
         print(f"Error: {e}")
