@@ -136,7 +136,7 @@ def handle_image_message(event):
         data["image_url"] = image_url
         user_sessions[user_id] = data
         
-        reply_text = f"🍴 {data['name']} ですね！\nこれは「いつ」のご飯ですか？\n（例：今日の昼ごはん）"
+        reply_text = f" {data['name']} ですね！\nこれはいつのご飯ですか？"
         
         line_bot_api = MessagingApi(api_client)
         line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
