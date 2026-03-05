@@ -1,5 +1,6 @@
 import os
 import json
+import threading
 from datetime import datetime
 import cloudinary
 import cloudinary.uploader
@@ -49,8 +50,6 @@ def save_to_notion(data):
             "files": [{"type": "external", "name": "Meal Photo", "external": {"url": data["image_url"]}}]
         }
 
-    print(f"Notion properties: {json.dumps(properties, ensure_ascii=False)}")
-    
     notion.pages.create(parent={"database_id": DATABASE_ID}, properties=properties)
 
 @app.route('/')
@@ -67,8 +66,7 @@ def callback():
         abort(400)
     return 'OK'
 
-@handler.add(MessageEvent, message=TextMessageContent)
-def handle_text_message(event):
+def process_text_message(event):
     user_id = event.source.user_id
     user_text = event.message.text
     now = datetime.now().strftime('%Y-%m-%d')
@@ -128,8 +126,7 @@ def handle_text_message(event):
             messages=[TextMessage(text=reply_text)]
         ))
 
-@handler.add(MessageEvent, message=ImageMessageContent)
-def handle_image_message(event):
+def process_image_message(event):
     user_id = event.source.user_id
     
     with ApiClient(configuration) as api_client:
@@ -152,6 +149,14 @@ def handle_image_message(event):
         
         line_bot_api = MessagingApi(api_client)
         line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
+
+@handler.add(MessageEvent, message=TextMessageContent)
+def handle_text_message(event):
+    threading.Thread(target=process_text_message, args=(event,)).start()
+
+@handler.add(MessageEvent, message=ImageMessageContent)
+def handle_image_message(event):
+    threading.Thread(target=process_image_message, args=(event,)).start()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
